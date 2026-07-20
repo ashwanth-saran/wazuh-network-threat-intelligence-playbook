@@ -1,0 +1,390 @@
+{
+  "name": "Wazuh Network Threat Intelligence Playbook",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alerts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        -288
+      ],
+      "id": "f194ac50-926b-4fe0-a21a-51a05ae70acf",
+      "name": "Webhook",
+      "webhookId": "23f4f50d-4819-45e3-88ed-553c8e637072"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"received\",\n  \"message\": \"Alert received from Wazuh\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1200,
+        -336
+      ],
+      "id": "90357911-20db-4cad-adf9-3bd98a5881e3",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhook = $input.first().json;\nconst alert = webhook.body;\n\nconst src_ip =\n  alert.data?.srcip ||\n  alert.data?.src_ip ||\n  alert.data?.win?.eventdata?.IpAddress ||\n  alert.agent?.ip ||\n  null;\n\nreturn [{\n  json: {\n    agent: alert.agent?.name || \"Unknown\",\n    agent_ip: alert.agent?.ip || null,\n\n    rule_id: alert.rule?.id || null,\n    level: alert.rule?.level || 0,\n    description: alert.rule?.description || \"\",\n\n    src_ip,\n    timestamp: alert.timestamp,\n    full_alert: alert\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        -288
+      ],
+      "id": "d50d2a90-7a17-4931-b055-696fd532e4f3",
+      "name": "Extract Alert"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.virustotal.com/api/v3/ip_addresses/{{$json.src_ip}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "your key value"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -368,
+        -208
+      ],
+      "id": "c944be46-3cc6-4855-979f-6acb5bad869c",
+      "name": "VirusTotal Lookup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const vt = $input.first().json.data;\n\nreturn [{\n  json: {\n    ip: vt.id,\n    reputation: vt.attributes.reputation,\n    malicious: vt.attributes.last_analysis_stats.malicious,\n    suspicious: vt.attributes.last_analysis_stats.suspicious,\n    harmless: vt.attributes.last_analysis_stats.harmless,\n    country: vt.attributes.country,\n    as_owner: vt.attributes.as_owner\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -144
+      ],
+      "id": "b20e72c8-ccee-438b-9df0-8dd8c08359d2",
+      "name": "Parse VirusTotal"
+    },
+    {
+      "parameters": {
+        "url": "https://api.abuseipdb.com/api/v2/check",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ipAddress",
+              "value": "={{$json.ip}}"
+            },
+            {
+              "name": "maxAgeInDays",
+              "value": "90"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Key",
+              "value": "Your key value"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        -64
+      ],
+      "id": "41fa7f10-1282-4d6c-a19d-168848bdbd52",
+      "name": "AbuseIPDB Lookup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const abuse = $input.first().json.data;\n\nreturn [{\n  json: {\n    ...$('Parse VirusTotal').first().json,\n\n    abuse_score: abuse.abuseConfidenceScore,\n    total_reports: abuse.totalReports,\n    usage_type: abuse.usageType,\n    isp: abuse.isp,\n    domain: abuse.domain,\n    country_code: abuse.countryCode,\n    last_reported: abuse.lastReportedAt\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -64
+      ],
+      "id": "6a1efa19-340c-4d04-8b08-cc2b18248535",
+      "name": "Parse AbuseIPDB"
+    },
+    {
+      "parameters": {
+        "url": "=https://ipapi.co/{{$json.ip}}/json/",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        528,
+        -64
+      ],
+      "id": "3082c9ba-d600-4dfa-b241-c6b0691d6c8c",
+      "name": "GeoIP Lookup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const geo = $input.first().json;\n\nreturn [{\n  json: {\n    ...$('Parse AbuseIPDB').first().json,\n\n    city: geo.city,\n    region: geo.region,\n    country: geo.country_name,\n    country_code: geo.country_code,\n\n    latitude: geo.latitude,\n    longitude: geo.longitude,\n\n    timezone: geo.timezone,\n\n    organization: geo.org,\n    asn: geo.asn\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        -64
+      ],
+      "id": "81ae83f4-4cd5-4e35-94ad-8048e9033e73",
+      "name": "Parse GeoIP"
+    },
+    {
+      "parameters": {
+        "chatId": "7560741761",
+        "text": "=🚨 Wazuh Alert\n\nAgent: {{$node[\"Extract Alert\"].json.agent}}\nRule ID: {{$node[\"Extract Alert\"].json.rule_id}}\nSeverity: {{$node[\"Extract Alert\"].json.level}}\n\nDescription:\n{{$node[\"Extract Alert\"].json.description}}\n\nSource IP:\n{{$node[\"Extract Alert\"].json.src_ip}}\n\nVirusTotal\n\nReputation: {{$json.reputation}}\nMalicious: {{$json.malicious}}\nSuspicious: {{$json.suspicious}}\nHarmless: {{$json.harmless}}\n\nCountry: {{$json.country}}\nOwner: {{$json.as_owner}}\n\n━━━━━━━━━━━━━━\n🚨 AbuseIPDB\n\nConfidence:\n{{$json.abuse_score}}%\n\nReports:\n{{$json.total_reports}}\n\nISP:\n{{$json.isp}}\n\nUsage:\n{{$json.usage_type}}\n\nLast Report:\n{{$json.last_reported}}\n\n━━━━━━━━━━━━━━\n🌍 Geo Location\n\nCountry:\n{{$json.country}}\n\nRegion:\n{{$json.region}}\n\nCity:\n{{$json.city}}\n\nOrganization:\n{{$json.org}}\n\nASN:\n{{$json.asn}}\n\nTimezone:\n{{$json.timezone}}\n\nCoordinates:\n{{$json.latitude}}, {{$json.longitude}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        976,
+        -144
+      ],
+      "id": "2ffa3623-b135-49cc-86af-61eacc362b91",
+      "name": "Telegram Alert",
+      "webhookId": "55e5f053-126b-4b73-87ed-00e7cc5ae32b",
+      "credentials": {
+        "telegramApi": {
+          "id": "YUnDe6PZu7nrPuwZ",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9ca1193f-fe7b-477e-bee3-841b67d29b60",
+              "leftValue": "={{$json.src_ip}}",
+              "rightValue": "192.168.",
+              "operator": {
+                "type": "string",
+                "operation": "notStartsWith"
+              }
+            },
+            {
+              "id": "26889950-0858-45d9-bf48-4b8aa51a5cb4",
+              "leftValue": "={{$json.src_ip}} ",
+              "rightValue": "10.",
+              "operator": {
+                "type": "string",
+                "operation": "notStartsWith"
+              }
+            },
+            {
+              "id": "6e57e5c1-f7a9-4594-8a5c-f4f66b4d25a4",
+              "leftValue": "={{$json.src_ip}} ",
+              "rightValue": "172.",
+              "operator": {
+                "type": "string",
+                "operation": "notStartsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -592,
+        -288
+      ],
+      "id": "8218ac3e-44fb-45ce-9413-e66c733d224f",
+      "name": "Public IP Check"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Extract Alert": {
+      "main": [
+        [
+          {
+            "node": "Public IP Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VirusTotal Lookup": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse VirusTotal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse VirusTotal": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AbuseIPDB Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AbuseIPDB Lookup": {
+      "main": [
+        [
+          {
+            "node": "Parse AbuseIPDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AbuseIPDB": {
+      "main": [
+        [
+          {
+            "node": "GeoIP Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GeoIP Lookup": {
+      "main": [
+        [
+          {
+            "node": "Parse GeoIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse GeoIP": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Public IP Check": {
+      "main": [
+        [
+          {
+            "node": "VirusTotal Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "23ad3fd0-e4eb-4768-b1d9-171af2b44609",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b48656f392eb3d64adad9d370fd8e175c5c714db5cdf3dadeba738a7e66820f0"
+  },
+  "nodeGroups": [],
+  "id": "JJuObMFGW8Pkx9im",
+  "tags": []
+}
