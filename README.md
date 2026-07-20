@@ -264,7 +264,7 @@ LinkedIn:
 https://www.linkedin.com/in/ashwanthsaran08/
 
 Portfolio:
-https://ashwanth-saran.github.io/ashufoilo/
+https://ashufoilo.netlify.app/
 
 ---
 
